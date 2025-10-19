@@ -396,9 +396,21 @@ const requestTwoFactorCode = async (info) => {
   return code;
 };
 
-const handleTwoFactorLogin = async (info) => {
+const handleTwoFactorLogin = async (info, attempt) => {
   if (!info?.two_factor_identifier) {
     throw new Error("Two-factor info missing identifier");
+  }
+
+  if (info.pending_trusted_notification && info.trusted_notification_polling_nonce) {
+    const contactHint =
+      info.obfuscated_phone_number_2 || info.obfuscated_phone_number || "your device";
+    const approved = await waitForTrustedNotificationApproval(contactHint);
+    if (!approved) {
+      console.warn("Trusted notification not approved. Falling back to code entry.");
+    } else {
+      console.log("Trusted notification approved. Retrying login...");
+      return login(attempt + 1);
+    }
   }
 
   const verificationCode = await requestTwoFactorCode(info);
@@ -880,6 +892,31 @@ const waitForSecurityCode = async (message) => {
   return response.value;
 };
 
+const waitForTrustedNotificationApproval = async (contactHint) => {
+  if (usingTelegram) {
+    await sendTelegramNotification(
+      `Approve the Instagram login notification for ${USERNAME} (sent to ${contactHint}). Reply with *done* when it's approved.`
+    );
+    const confirmation = await waitForTelegramResponse({
+      evaluate: (text) => (/^(done|approved|ok|yes)$/i.test(text) ? true : false),
+    });
+    if (confirmation) {
+      return true;
+    }
+    console.warn("Timed out waiting for trusted notification approval via Telegram.");
+  }
+
+  const { approved } = await prompt([
+    {
+      type: "confirm",
+      name: "approved",
+      message: `Approve the Instagram login notification (device hint: ${contactHint}). Select 'yes' once it's approved.`,
+      default: true,
+    },
+  ]);
+  return approved;
+};
+
 const chooseVerificationMethod = async (methodChoices, defaultChoice) => {
   if (!usingTelegram || methodChoices.length === 0) {
     return null;
@@ -955,7 +992,7 @@ const login = async (attempt = 1) => {
       if (!info) {
         throw new Error("Two-factor required but no additional info provided");
       }
-      return await handleTwoFactorLogin(info);
+      return await handleTwoFactorLogin(info, attempt);
     }
 
     if (!(error instanceof IgCheckpointError)) {
