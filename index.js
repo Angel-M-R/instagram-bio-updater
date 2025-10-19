@@ -879,6 +879,12 @@ const login = async (attempt = 1) => {
   try {
     return await ig.account.login(USERNAME, PASSWORD);
   } catch (error) {
+    if (error?.response?.body) {
+      console.error(
+        "Login error response:",
+        JSON.stringify(error.response.body, null, 2)
+      );
+    }
     if (!(error instanceof IgCheckpointError)) {
       throw error;
     }
