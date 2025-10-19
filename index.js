@@ -7,6 +7,7 @@ const fetch = require("node-fetch");
 const {
   IgApiClient,
   IgCheckpointError,
+  IgLoginTwoFactorRequiredError,
 } = require("instagram-private-api");
 
 const ig = new IgApiClient();
@@ -362,6 +363,64 @@ const generateProfileImageWithGenAI = async () => {
   );
   console.log(`Generated AI profile image at ${outputPath}`);
   return outputPath;
+};
+
+const determineVerificationMethod = (info) => {
+  if (info?.totp_two_factor_on) {
+    return "0";
+  }
+  if (info?.whatsapp_two_factor_on) {
+    return "2";
+  }
+  return "1"; // default to SMS
+};
+
+const requestTwoFactorCode = async (info) => {
+  const contactHint =
+    info?.obfuscated_phone_number_2 || info?.obfuscated_phone_number || "your device";
+
+  const telegramMessage = `Instagram two-factor required for ${USERNAME}. Code sent to ${contactHint}. Reply with the numeric code to continue.`;
+
+  let code = await waitForSecurityCode(telegramMessage);
+  if (!code) {
+    const response = await prompt([
+      {
+        type: "input",
+        name: "twoFactorCode",
+        message: `Enter the two-factor code sent to ${contactHint}:`,
+      },
+    ]);
+    code = response.twoFactorCode.trim();
+  }
+
+  return code;
+};
+
+const handleTwoFactorLogin = async (info) => {
+  if (!info?.two_factor_identifier) {
+    throw new Error("Two-factor info missing identifier");
+  }
+
+  const verificationCode = await requestTwoFactorCode(info);
+  const verificationMethod = determineVerificationMethod(info);
+
+  const payload = {
+    username: USERNAME,
+    verificationCode,
+    twoFactorIdentifier: info.two_factor_identifier,
+    verificationMethod,
+    trustThisDevice: "1",
+    verificationTimestamp: Date.now().toString(),
+  };
+
+  if (info?.pk) {
+    payload.loginAttemptAccountId = String(info.pk);
+  }
+
+  console.log("Submitting two-factor verification...");
+  const result = await ig.account.twoFactorLogin(payload);
+  console.log("Two-factor authentication succeeded.");
+  return result.logged_in_user ?? result;
 };
 
 const buildBiography = async () => {
@@ -793,13 +852,14 @@ const waitForManualChallengeConfirmation = async (challengeUrl) => {
   return Boolean(confirmation);
 };
 
-const waitForSecurityCode = async () => {
+const waitForSecurityCode = async (message) => {
   if (!usingTelegram) {
     return null;
   }
 
   await sendTelegramNotification(
-    "Instagram sent a security code. Reply with the numeric code to continue."
+    message ||
+      "Instagram sent a security code. Reply with the numeric code to continue."
   );
 
   const response = await waitForTelegramResponse({
@@ -885,6 +945,19 @@ const login = async (attempt = 1) => {
         JSON.stringify(error.response.body, null, 2)
       );
     }
+
+    if (
+      error instanceof IgLoginTwoFactorRequiredError ||
+      error?.response?.body?.two_factor_required
+    ) {
+      const info =
+        error.response?.body?.two_factor_info || error.twoFactorInfo;
+      if (!info) {
+        throw new Error("Two-factor required but no additional info provided");
+      }
+      return await handleTwoFactorLogin(info);
+    }
+
     if (!(error instanceof IgCheckpointError)) {
       throw error;
     }
@@ -1025,7 +1098,7 @@ const login = async (attempt = 1) => {
       );
     }
 
-    let code = await waitForSecurityCode();
+  let code = await waitForSecurityCode();
     if (!code) {
       const response = await prompt([
         {
