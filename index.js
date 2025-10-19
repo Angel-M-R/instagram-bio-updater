@@ -309,11 +309,6 @@ const generateProfileImageWithGenAI = async () => {
     },
   });
 
-  console.log(
-    "GenAI response candidates:",
-    JSON.stringify(response.candidates ?? [], null, 2)
-  );
-
   const candidate = response.candidates?.[0];
   if (!candidate) {
     throw new Error("GenAI returned no candidates for profile image.");
