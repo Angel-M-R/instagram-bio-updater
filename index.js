@@ -455,7 +455,7 @@ const buildBiography = async () => {
     );
   }
 
-  return `${quote}\n +-----📍Madrid ${madridDate}📍-----+\n${weatherTodayLine}\n${weatherTomorrowLine}`;
+  return `${quote}\n+-----📍Madrid ${madridDate}📍-----+\n${weatherTodayLine}\n${weatherTomorrowLine}`;
 };
 
 const updateProfilePhotoIfNeeded = async () => {
