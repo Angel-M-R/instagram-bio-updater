@@ -1,6 +1,7 @@
 require("dotenv").config();
 const inquirer = require("inquirer");
 const fs = require("fs/promises");
+const { createReadStream, existsSync, statSync } = require("fs");
 const path = require("path");
 const { URL } = require("url");
 const fetch = require("node-fetch");
@@ -480,8 +481,31 @@ const updateProfilePhotoIfNeeded = async () => {
   }
 
   try {
-    const imageBuffer = await fs.readFile(targetPath);
-    await ig.account.changeProfilePicture(imageBuffer);
+    // Validate file exists and is readable (important for Ubuntu server)
+    if (!existsSync(targetPath)) {
+      throw new Error(`Profile image file not found: ${targetPath}`);
+    }
+
+    const stats = statSync(targetPath);
+    if (!stats.isFile()) {
+      throw new Error(`Path is not a file: ${targetPath}`);
+    }
+
+    // Check file size (Instagram has limits, typically 8MB max)
+    const fileSizeMB = stats.size / (1024 * 1024);
+    if (fileSizeMB > 8) {
+      throw new Error(
+        `Profile image too large: ${fileSizeMB.toFixed(2)}MB (max 8MB)`
+      );
+    }
+
+    console.log(
+      `Uploading profile photo: ${targetPath} (${fileSizeMB.toFixed(2)}MB)`
+    );
+
+    // Use ReadStream instead of Buffer - Instagram API expects this format
+    const imageStream = createReadStream(targetPath);
+    await ig.account.changeProfilePicture(imageStream);
     console.log(`Profile photo updated using ${targetPath}.`);
     return true;
   } catch (error) {
