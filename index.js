@@ -499,13 +499,52 @@ const updateProfilePhotoIfNeeded = async () => {
       );
     }
 
+    // Validate file extension (Instagram typically accepts JPEG and PNG)
+    const ext = path.extname(targetPath).toLowerCase();
+    const validExtensions = ['.jpg', '.jpeg', '.png'];
+    if (!validExtensions.includes(ext)) {
+      console.warn(
+        `Warning: File extension ${ext} may not be supported. Instagram typically accepts: ${validExtensions.join(', ')}`
+      );
+    }
+
     console.log(
-      `Uploading profile photo: ${targetPath} (${fileSizeMB.toFixed(2)}MB)`
+      `Uploading profile photo: ${targetPath} (${fileSizeMB.toFixed(2)}MB, format: ${ext})`
     );
 
-    // Use ReadStream instead of Buffer - Instagram API expects this format
-    const imageStream = createReadStream(targetPath);
-    await ig.account.changeProfilePicture(imageStream);
+    // Log file info for debugging
+    console.log(`File stats:`, {
+      size: stats.size,
+      mode: stats.mode.toString(8),
+      uid: stats.uid,
+      gid: stats.gid,
+      atime: stats.atime,
+      mtime: stats.mtime,
+    });
+
+    // Try uploading with Buffer first (more reliable for some Instagram API versions)
+    try {
+      console.log('Attempting upload with Buffer...');
+      const imageBuffer = await fs.readFile(targetPath);
+      console.log(`Buffer size: ${imageBuffer.length} bytes`);
+      await ig.account.changeProfilePicture(imageBuffer);
+    } catch (bufferError) {
+      console.warn('Buffer upload failed, trying with stream...', bufferError.message);
+
+      // Fallback to ReadStream if Buffer fails
+      const imageStream = createReadStream(targetPath);
+
+      // Log stream info
+      imageStream.on('open', () => {
+        console.log('File stream opened successfully');
+      });
+
+      imageStream.on('error', (streamError) => {
+        console.error('Stream error:', streamError);
+      });
+
+      await ig.account.changeProfilePicture(imageStream);
+    }
     console.log(`Profile photo updated using ${targetPath}.`);
     return true;
   } catch (error) {
@@ -513,6 +552,17 @@ const updateProfilePhotoIfNeeded = async () => {
       "Failed to update profile photo:",
       error.message ?? error
     );
+
+    // Log detailed error information for debugging
+    if (error.response) {
+      console.warn("Response body:", JSON.stringify(error.response.body, null, 2));
+      console.warn("Response status:", error.response.statusCode);
+      console.warn("Response headers:", JSON.stringify(error.response.headers, null, 2));
+    }
+    if (error.text) {
+      console.warn("Error text:", error.text);
+    }
+
     return false;
   }
 };
