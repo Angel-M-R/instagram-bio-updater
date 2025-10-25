@@ -114,9 +114,9 @@ const formatWeatherLine = (label, summary) => {
   const emoji = statusEmoji[summary.status] ?? statusEmoji.unknown;
   let content
   if(label === "Hoy"){
-  content = `${label}⠀⠀⠀${max} / ${min} ${emoji}`;
+  content = `${label}⠀⠀⠀${min} / ${max} ${emoji}`;
   } else {
-  content = `${label} ${max} / ${min} ${emoji}`;
+  content = `${label} ${min} / ${max} ${emoji}`;
   }
   return ` | ${content}⠀⠀⠀⠀|`;
 };
