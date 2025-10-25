@@ -148,12 +148,15 @@ const summarizeEntries = (entries) => {
 
   for (const item of entries) {
     const main = item.main ?? {};
-    if (typeof main.temp_min === "number") {
-      minTemp = Math.min(minTemp, main.temp_min);
+
+    // Use the actual temp value for min/max calculation
+    // temp_min/temp_max in the forecast API are city-wide reference values,
+    // not daily extremes. We need to track actual temperatures.
+    if (typeof main.temp === "number") {
+      minTemp = Math.min(minTemp, main.temp);
+      maxTemp = Math.max(maxTemp, main.temp);
     }
-    if (typeof main.temp_max === "number") {
-      maxTemp = Math.max(maxTemp, main.temp_max);
-    }
+
     const primary = item.weather?.[0]?.main;
     if (primary) {
       const status = normalizeStatus(primary);
@@ -616,7 +619,7 @@ const TELEGRAM_POLL_TIMEOUT_SECONDS = Number(
 const PROFILE_PHOTO_PATH = process.env.IG_PROFILE_PHOTO_PATH?.trim();
 const DEFAULT_GENAI_API_KEY = "AIzaSyCGzzB-12I9hRw6DJnghJl6wMVWGc1iTMQ";
 const PROFILE_GENAI_PROMPT =
-  "Using the provided image, please change the bulb from the top to something random original";
+  "Using the provided image, please change the bulb from the top to something random related with technology, IT or programming";
 const PROFILE_GENAI_SOURCE =
   process.env.IG_PROFILE_GENAI_SOURCE || "angelImage.jpg";
 const PROFILE_GENAI_MODEL =

@@ -31,25 +31,38 @@ const buildUrl = () => {
   return `https://api.openweathermap.org/${path}?${params.toString()}`;
 };
 
-const normalizeStatus = (main = "") => {
-  const map = {
-    thunderstorm: "stormy",
-    drizzle: "rainy",
-    rain: "rainy",
-    snow: "snowy",
-    clear: "sunny",
-    clouds: "cloudy",
-    mist: "foggy",
-    smoke: "hazy",
-    haze: "hazy",
-    dust: "dusty",
-    fog: "foggy",
-    sand: "dusty",
-    ash: "ashy",
-    squall: "windy",
-    tornado: "tornado",
-  };
-  return map[main.toLowerCase()] || main.toLowerCase() || "unknown";
+const statusMap = {
+  thunderstorm: "stormy",
+  drizzle: "rainy",
+  rain: "rainy",
+  snow: "snowy",
+  clear: "sunny",
+  clouds: "cloudy",
+  mist: "foggy",
+  smoke: "hazy",
+  haze: "hazy",
+  dust: "dusty",
+  fog: "foggy",
+  sand: "dusty",
+  ash: "ashy",
+  squall: "windy",
+  tornado: "tornado",
+};
+
+const normalizeStatus = (value = "") => {
+  if (!value) {
+    return "unknown";
+  }
+  // Handle case-insensitive matching for all documented OpenWeather conditions
+  const normalized = value.toString().toLowerCase().trim();
+  const mapped = statusMap[normalized];
+
+  // Debug logging to see what we're receiving from the API
+  if (!mapped) {
+    console.log(`[Weather Debug] Unmapped status received: "${value}" (normalized: "${normalized}")`);
+  }
+
+  return mapped || normalized || "unknown";
 };
 
 const statusEmoji = {
@@ -67,6 +80,23 @@ const statusEmoji = {
   unknown: "❔",
 };
 
+// Priority order for weather conditions (higher = more important to show)
+// We want to show rain/storms over clouds, even if clouds is more frequent
+const weatherPriority = {
+  tornado: 10,
+  stormy: 9,
+  snowy: 8,
+  rainy: 7,
+  windy: 6,
+  ashy: 5,
+  dusty: 4,
+  foggy: 3,
+  hazy: 3,
+  cloudy: 2,
+  sunny: 1,
+  unknown: 0,
+};
+
 const summarizeEntries = (entries, timezoneOffsetSeconds) => {
   if (!Array.isArray(entries) || entries.length === 0) {
     return null;
@@ -78,11 +108,13 @@ const summarizeEntries = (entries, timezoneOffsetSeconds) => {
 
   for (const item of entries) {
     const main = item.main || {};
-    if (typeof main.temp_min === "number") {
-      minTemp = Math.min(minTemp, main.temp_min);
-    }
-    if (typeof main.temp_max === "number") {
-      maxTemp = Math.max(maxTemp, main.temp_max);
+
+    // Use the actual temp value for min/max calculation
+    // temp_min/temp_max in the forecast API are city-wide reference values,
+    // not daily extremes. We need to track actual temperatures.
+    if (typeof main.temp === "number") {
+      minTemp = Math.min(minTemp, main.temp);
+      maxTemp = Math.max(maxTemp, main.temp);
     }
 
     const weatherMain = item.weather?.[0]?.main;
@@ -96,19 +128,28 @@ const summarizeEntries = (entries, timezoneOffsetSeconds) => {
     return null;
   }
 
-  let dominantStatus = "unknown";
-  let dominantCount = -1;
+  // Select the most important weather status based on priority, not just frequency
+  // This ensures rain shows up even if most hours are cloudy
+  let selectedStatus = "unknown";
+  let selectedPriority = -1;
+
   for (const [status, count] of statusCount.entries()) {
-    if (count > dominantCount) {
-      dominantStatus = status;
-      dominantCount = count;
+    const priority = weatherPriority[status] ?? 0;
+    // Only consider statuses that actually occur
+    if (count > 0 && priority > selectedPriority) {
+      selectedStatus = status;
+      selectedPriority = priority;
     }
   }
+
+  // Debug logging to see weather status distribution
+  console.log(`[Weather Debug] Status counts:`, Object.fromEntries(statusCount));
+  console.log(`[Weather Debug] Selected status: "${selectedStatus}" (priority: ${selectedPriority})`);
 
   return {
     minTemp,
     maxTemp,
-    status: dominantStatus,
+    status: selectedStatus,
   };
 };
 
@@ -162,7 +203,7 @@ const formatSummary = (label, summary) => {
 
 const run = async () => {
   const url = buildUrl();
-  console.log(`Fetching weather from ${url}`);
+  console.log(`Fetching weather from ${url}\n`);
   const response = await fetch(url);
 
   if (!response.ok) {
@@ -173,14 +214,23 @@ const run = async () => {
   }
 
   const json = await response.json();
-  console.log("Weather response:");
-  console.log(JSON.stringify(json, null, 2));
 
   if (ENDPOINT === "forecast") {
     const summary = summarizeForecast(json);
-    console.log("\nSummary:");
+    console.log("\n=== Weather Summary ===");
     console.log(formatSummary("Today", summary.today));
     console.log(formatSummary("Tomorrow", summary.tomorrow));
+  } else {
+    // Current weather endpoint
+    const weatherMain = json.weather?.[0]?.main;
+    const temp = json.main?.temp;
+    if (weatherMain && temp !== undefined) {
+      const status = normalizeStatus(weatherMain);
+      const emoji = statusEmoji[status] ?? statusEmoji.unknown;
+      console.log(`\n=== Current Weather ===`);
+      console.log(`Temperature: ${Math.round(temp)}°C`);
+      console.log(`Status: ${status} ${emoji}`);
+    }
   }
 };
 
