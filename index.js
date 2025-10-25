@@ -47,7 +47,7 @@ const WEATHER_UNITS =
   process.env.OPENWEATHER_UNITS ||
   "metric";
 const WEATHER_LANG =
-  process.env.WEATHER_LANG || process.env.OPENWEATHER_LANG || "es";
+  process.env.WEATHER_LANG || process.env.OPENWEATHER_LANG || "en";
 const WEATHER_CACHE_TTL_MS = Number(
   process.env.WEATHER_CACHE_TTL_MS ?? 15 * 60 * 1000
 );
@@ -89,8 +89,16 @@ const normalizeStatus = (value = "") => {
   if (!value) {
     return "unknown";
   }
-  const normalized = value.toLowerCase();
-  return statusMap[normalized] || normalized || "unknown";
+  // Handle case-insensitive matching for all documented OpenWeather conditions
+  const normalized = value.toString().toLowerCase().trim();
+  const mapped = statusMap[normalized];
+
+  // Debug logging to see what we're receiving from the API
+  if (!mapped) {
+    console.log(`[Weather Debug] Unmapped status received: "${value}" (normalized: "${normalized}")`);
+  }
+
+  return mapped || normalized || "unknown";
 };
 
 const formatTemp = (value) =>
@@ -111,6 +119,23 @@ const formatWeatherLine = (label, summary) => {
   content = `${label} ${max} / ${min} ${emoji}`;
   }
   return ` | ${content}⠀⠀⠀⠀|`;
+};
+
+// Priority order for weather conditions (higher = more important to show)
+// We want to show rain/storms over clouds, even if clouds is more frequent
+const weatherPriority = {
+  tornado: 10,
+  stormy: 9,
+  snowy: 8,
+  rainy: 7,
+  windy: 6,
+  ashy: 5,
+  dusty: 4,
+  foggy: 3,
+  hazy: 3,
+  cloudy: 2,
+  sunny: 1,
+  unknown: 0,
 };
 
 const summarizeEntries = (entries) => {
@@ -140,19 +165,28 @@ const summarizeEntries = (entries) => {
     return null;
   }
 
-  let dominantStatus = "unknown";
-  let dominantCount = -1;
+  // Select the most important weather status based on priority, not just frequency
+  // This ensures rain shows up even if most hours are cloudy
+  let selectedStatus = "unknown";
+  let selectedPriority = -1;
+
   for (const [status, count] of statusCount.entries()) {
-    if (count > dominantCount) {
-      dominantStatus = status;
-      dominantCount = count;
+    const priority = weatherPriority[status] ?? 0;
+    // Only consider statuses that actually occur
+    if (count > 0 && priority > selectedPriority) {
+      selectedStatus = status;
+      selectedPriority = priority;
     }
   }
+
+  // Debug logging to see weather status distribution
+  console.log(`[Weather Debug] Status counts:`, Object.fromEntries(statusCount));
+  console.log(`[Weather Debug] Selected status: "${selectedStatus}" (priority: ${selectedPriority})`);
 
   return {
     minTemp,
     maxTemp,
-    status: dominantStatus,
+    status: selectedStatus,
   };
 };
 

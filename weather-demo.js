@@ -16,7 +16,7 @@ const buildUrl = () => {
     lon: LONGITUDE.toString(),
     appid: API_KEY,
     units: process.env.OPENWEATHER_UNITS || "metric",
-    lang: process.env.OPENWEATHER_LANG || "es",
+    lang: process.env.OPENWEATHER_LANG || "en",
   });
 
   let path = "data/2.5/weather";
